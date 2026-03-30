@@ -7,8 +7,8 @@ const BOT_TOKEN   = process.env.BOT_TOKEN;
 const ADMIN_ROLE  = process.env.ADMIN_ROLE;
 const LUARMOR_KEY = process.env.LUARMOR_KEY;
 const PROJECTS = {
-    premium:  { id: "8b3909f9359e16e6c5429c23f47a27ef",  slots: 8,  price: "$5.00 / 4 hours" },
-    standard: { id: "01a8d5a1daeaae85268208d81d403e2d", slots: 15, price: "$3.00 / 4 hours" },
+    premium:  { id: "8b3909f9359e16e6c5429c23f47a27ef",  slots: 8,  price: "$8.00 / hour (2hr min)" },
+    standard: { id: "01a8d5a1daeaae85268208d81d403e2d", slots: 15, price: "$4.00 / hour (2hr min)" },
 };
 const LUARMOR = "https://luarmor.net/api/v3";
 const headers = { "x-api-key": LUARMOR_KEY };
@@ -231,7 +231,8 @@ client.on("interactionCreate", async interaction => {
         if (commandName === "buy") {
             const plan    = interaction.options.getString("plan");
             const hours   = interaction.options.getInteger("hours");
-            const pricePerHour = plan === "premium" ? 1.25 : 0.75;
+            const pricePerHour = plan === "premium" ? 8 : 4;
+            if (hours < 2) return interaction.editReply({ embeds: [embed("❌ Minimum 2 Hours", "You must buy at least **2 hours**.", 0xFF3333)] });
             const total   = pricePerHour * hours;
             const bal     = data.balances[user.id] || 0;
             if (bal < total) {
@@ -272,8 +273,8 @@ client.on("interactionCreate", async interaction => {
             const stdAvail   = PROJECTS.standard.slots - stdActive;
             return interaction.editReply({ embeds: [embed("🎰 Key Shop",
                 `**Status** — Active\n\n` +
-                `**Premium (${premAvail}/${PROJECTS.premium.slots} available)**\n${premAvail > 0 ? `Price: ${PROJECTS.premium.price}` : "No slots available"}\n\n` +
-                `**Standard (${stdAvail}/${PROJECTS.standard.slots} available)**\n${stdAvail > 0 ? `Price: ${PROJECTS.standard.price}` : "No slots available"}\n\n` +
+                `**Premium (${premActive}/${PROJECTS.premium.slots} taken)**\n${premAvail > 0 ? `Price: ${PROJECTS.premium.price}` : "❌ No slots available"}\n\n` +
+                `**Standard (${stdActive}/${PROJECTS.standard.slots} taken)**\n${stdAvail > 0 ? `Price: ${PROJECTS.standard.price}` : "❌ No slots available"}\n\n` +
                 `**How to buy**\nUse \`/buy\` to purchase a key`,
                 0x2E78F0)] });
         }
