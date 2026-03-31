@@ -273,8 +273,10 @@ client.on("interactionCreate", async interaction => {
                     `All **${maxSlots} ${planName(plan)}** slots are currently taken. Check back later!`, 0xFF3333)] });
             }
             const expireTs = Math.floor(Date.now() / 1000) + (hours * 3600);
-            const result = await createKey(PROJECTS[plan].id, undefined, user.id, expireTs);
-            if (!result?.user_key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed to create key.", 0xFF3333)] });
+            const availKey = await getAvailableKey(PROJECTS[plan].id);
+            if (!availKey) return interaction.editReply({ embeds: [embed("❌ No Keys Available", "No available keys in the pool. Please contact an admin.", 0xFF3333)] });
+            const result = await assignKey(PROJECTS[plan].id, availKey.key, user.id, expireTs);
+            if (!result?.user_key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed to assign key.", 0xFF3333)] });
             data.balances[user.id] = parseFloat((bal - total).toFixed(2));
             data.userKeys[user.id] = { key: result.user_key, project: PROJECTS[plan].id, plan };
             saveData();
