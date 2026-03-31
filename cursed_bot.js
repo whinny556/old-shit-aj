@@ -26,8 +26,12 @@ let data = loadData();
 async function getAllUsers(projectId) {
     try {
         const r = await axios.get(`${LUARMOR}/projects/${projectId}/users`, { headers });
-        return r.data?.users || [];
-    } catch { return []; }
+        console.log(`getAllUsers raw keys: ${Object.keys(r.data || {}).join(',')}`);
+        return r.data?.users || r.data?.data || r.data || [];
+    } catch(e) { 
+        console.error('getAllUsers error:', e?.response?.status, JSON.stringify(e?.response?.data));
+        return []; 
+    }
 }
 async function getUser(projectId, key) {
     const users = await getAllUsers(projectId);
