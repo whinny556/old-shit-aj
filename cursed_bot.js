@@ -37,7 +37,12 @@ async function apiPost(path, body) {
     try {
         const r = await axios.post(`${LUARMOR}${path}`, body, { headers });
         return r.data;
-    } catch(e) { return { success: false, message: e?.response?.data?.message || e.message || "Failed" }; }
+    } catch(e) {
+        const errMsg = e?.response?.data?.message || e?.response?.data || e.message || "Failed";
+        const status = e?.response?.status || "no status";
+        console.error(`API Error [${status}] on ${path}:`, JSON.stringify(e?.response?.data), "Body sent:", JSON.stringify(body));
+        return { success: false, message: `${status}: ${JSON.stringify(errMsg)}` };
+    }
 }
 const resetHWID      = (pid, key)         => apiPost(`/projects/${pid}/users/reset-hwid`, { user_key: key });
 const blacklistKey   = (pid, key, reason) => apiPost(`/projects/${pid}/users/blacklist`, { user_key: key, reason });
