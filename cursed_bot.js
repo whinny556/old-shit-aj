@@ -10,7 +10,7 @@ const PROJECTS = {
     premium:  { id: "8b3909f9359e16e6c5429c23f47a27ef",  slots: 8,  price: "$8.00 / hour (2hr min)" },
     standard: { id: "01a8d5a1daeaae85268208d81d403e2d", slots: 15, price: "$4.00 / hour (2hr min)" },
 };
-const LUARMOR = "https://luarmor.net/api/v3";
+const LUARMOR = "https://api.luarmor.net/v3";
 const headers = { "x-api-key": LUARMOR_KEY };
 const DATA_FILE = "./bot_data.json";
 
@@ -39,13 +39,13 @@ async function apiPost(path, body) {
         return r.data;
     } catch(e) { return { success: false, message: e?.response?.data?.message || e.message || "Failed" }; }
 }
-const resetHWID      = (pid, key)         => apiPost(`/projects/${pid}/users/reset-hwid`, { key });
-const blacklistKey   = (pid, key, reason) => apiPost(`/projects/${pid}/users/blacklist`, { key, reason });
-const unblacklistKey = (pid, key)         => apiPost(`/projects/${pid}/users/unblacklist`, { key });
-const addTime        = (pid, key, days)   => apiPost(`/projects/${pid}/users/add-time`, { key, days });
+const resetHWID      = (pid, key)         => apiPost(`/projects/${pid}/users/reset-hwid`, { user_key: key });
+const blacklistKey   = (pid, key, reason) => apiPost(`/projects/${pid}/users/blacklist`, { user_key: key, reason });
+const unblacklistKey = (pid, key)         => apiPost(`/projects/${pid}/users/unblacklist`, { user_key: key });
+const addTime        = (pid, key, days)   => apiPost(`/projects/${pid}/users/add-time`, { user_key: key, days });
 const removeTime     = (pid, key, days)   => apiPost(`/projects/${pid}/users/remove-time`, { key, days });
-const deleteKey      = (pid, key)         => apiPost(`/projects/${pid}/users/delete`, { key });
-const createKey      = (pid, days, ident) => apiPost(`/projects/${pid}/users/create`, { auth_expire: days, identifier: ident || "" });
+const deleteKey      = (pid, key)         => apiPost(`/projects/${pid}/users?user_key=${key}`, {});
+const createKey      = (pid, days, ident, expireTs) => apiPost(`/projects/${pid}/users`, { key_days: days, auth_expire: expireTs || undefined, identifier: ident || "" });
 
 // ─── HELPERS ──────────────────────────────────────────────
 function isAdmin(member) {
@@ -248,19 +248,19 @@ client.on("interactionCreate", async interaction => {
                 return interaction.editReply({ embeds: [embed("❌ No Slots Available",
                     `All **${maxSlots} ${planName(plan)}** slots are currently taken. Check back later!`, 0xFF3333)] });
             }
-            const days   = Math.ceil(hours / 24) || 1;
-            const result = await createKey(PROJECTS[plan].id, days, user.id);
-            if (!result?.key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed to create key.", 0xFF3333)] });
+            const expireTs = Math.floor(Date.now() / 1000) + (hours * 3600);
+            const result = await createKey(PROJECTS[plan].id, undefined, user.id, expireTs);
+            if (!result?.user_key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed to create key.", 0xFF3333)] });
             data.balances[user.id] = parseFloat((bal - total).toFixed(2));
-            data.userKeys[user.id] = { key: result.key, project: PROJECTS[plan].id, plan };
+            data.userKeys[user.id] = { key: result.user_key, project: PROJECTS[plan].id, plan };
             saveData();
             try {
                 await user.send({ embeds: [embed("🎉 Purchase Successful!",
-                    `You bought a **${planName(plan)}** key!\n\n**Key:** \`${result.key}\`\n**Duration:** ${hours} hours\n**Charged:** $${total.toFixed(2)}`,
+                    `You bought a **${planName(plan)}** key!\n\n**Key:** \`${result.user_key}\`\n**Duration:** ${hours} hours\n**Charged:** $${total.toFixed(2)}`,
                     0x00CC66)] });
             } catch {}
             return interaction.editReply({ embeds: [embed("✅ Purchase Successful!",
-                `**Plan:** ${planName(plan)}\n**Key:** \`${result.key}\`\n**Duration:** ${hours} hours\n**Charged:** $${total.toFixed(2)}\n**New Balance:** $${getBalance(user.id)}\n\nKey sent to your DMs!`,
+                `**Plan:** ${planName(plan)}\n**Key:** \`${result.user_key}\`\n**Duration:** ${hours} hours\n**Charged:** $${total.toFixed(2)}\n**New Balance:** $${getBalance(user.id)}\n\nKey sent to your DMs!`,
                 0x00CC66)] });
         }
 
@@ -386,9 +386,9 @@ client.on("interactionCreate", async interaction => {
             const days       = interaction.options.getInteger("days");
             const identifier = interaction.options.getString("identifier") || "";
             const result     = await createKey(PROJECTS[plan].id, days, identifier);
-            if (!result?.key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed.", 0xFF3333)] });
+            if (!result?.user_key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed.", 0xFF3333)] });
             return interaction.editReply({ embeds: [embed("✅ Key Created",
-                `**Plan:** ${planName(plan)}\n**Key:** \`${result.key}\`\n**Days:** ${days}`, 0x00CC66)] });
+                `**Plan:** ${planName(plan)}\n**Key:** \`${result.user_key}\`\n**Days:** ${days}`, 0x00CC66)] });
         }
 
         if (commandName === "deletekey") {
@@ -407,16 +407,16 @@ client.on("interactionCreate", async interaction => {
             const plan   = interaction.options.getString("plan");
             const days   = interaction.options.getInteger("days");
             const result = await createKey(PROJECTS[plan].id, days, target.id);
-            if (!result?.key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed.", 0xFF3333)] });
-            data.userKeys[target.id] = { key: result.key, project: PROJECTS[plan].id, plan };
+            if (!result?.user_key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed.", 0xFF3333)] });
+            data.userKeys[target.id] = { key: result.user_key, project: PROJECTS[plan].id, plan };
             saveData();
             try {
                 await target.send({ embeds: [embed("🎉 You received a key!",
-                    `You've been given a **${planName(plan)}** key!\n\n**Key:** \`${result.key}\`\n**Duration:** ${days} days`,
+                    `You've been given a **${planName(plan)}** key!\n\n**Key:** \`${result.user_key}\`\n**Duration:** ${days} days`,
                     0x00CC66)] });
             } catch {}
             return interaction.editReply({ embeds: [embed("✅ Key Given",
-                `Gave ${target} a **${planName(plan)}** key.\n**Key:** \`${result.key}\``, 0x00CC66)] });
+                `Gave ${target} a **${planName(plan)}** key.\n**Key:** \`${result.user_key}\``, 0x00CC66)] });
         }
 
         if (commandName === "listkeys") {
