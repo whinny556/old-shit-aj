@@ -53,7 +53,7 @@ const deleteKey      = (pid, key)         => apiPost(`/projects/${pid}/users?use
 // Get an available unassigned key from the pool
 async function getAvailableKey(projectId) {
     const users = await getAllUsers(projectId);
-    return users.find(u => !u.discord_id && !u.hwid && !u.blacklisted && u.identifier === "") || null;
+    return users.find(u => !u.discord_id && !u.hwid && !u.blacklisted) || null;
 }
 
 // Assign an existing key to a user by setting expiry and identifier
