@@ -50,7 +50,26 @@ const unblacklistKey = (pid, key)         => apiPost(`/projects/${pid}/users/unb
 const addTime        = (pid, key, days)   => apiPost(`/projects/${pid}/users/add-time`, { user_key: key, days });
 const removeTime     = (pid, key, days)   => apiPost(`/projects/${pid}/users/remove-time`, { key, days });
 const deleteKey      = (pid, key)         => apiPost(`/projects/${pid}/users?user_key=${key}`, {});
-const createKey      = (pid, days, ident, expireTs) => apiPost(`/projects/${pid}/users`, { key_days: days, auth_expire: expireTs || undefined, identifier: ident || "" });
+// Get an available unassigned key from the pool
+async function getAvailableKey(projectId) {
+    const users = await getAllUsers(projectId);
+    return users.find(u => !u.discord_id && !u.hwid && !u.blacklisted && u.identifier === "") || null;
+}
+
+// Assign an existing key to a user by setting expiry and identifier
+async function assignKey(projectId, key, discordId, expireTs) {
+    try {
+        const r = await axios.patch(`${LUARMOR}/projects/${projectId}/users?user_key=${key}`, {
+            identifier: discordId,
+            auth_expire: expireTs,
+        }, { headers });
+        return { ...r.data, user_key: key };
+    } catch(e) {
+        const errMsg = e?.response?.data?.message || e.message || "Failed";
+        console.error("assignKey error:", e?.response?.status, JSON.stringify(e?.response?.data));
+        return { success: false, message: errMsg };
+    }
+}
 
 // ─── HELPERS ──────────────────────────────────────────────
 function isAdmin(member) {
@@ -411,7 +430,10 @@ client.on("interactionCreate", async interaction => {
             const target = interaction.options.getUser("user");
             const plan   = interaction.options.getString("plan");
             const days   = interaction.options.getInteger("days");
-            const result = await createKey(PROJECTS[plan].id, days, target.id);
+            const expireTs2 = Math.floor(Date.now() / 1000) + (days * 86400);
+            const availKey2 = await getAvailableKey(PROJECTS[plan].id);
+            if (!availKey2) return interaction.editReply({ embeds: [embed("❌ No Keys Available", "No available keys in pool.", 0xFF3333)] });
+            const result = await assignKey(PROJECTS[plan].id, availKey2.key, target.id, expireTs2);
             if (!result?.user_key) return interaction.editReply({ embeds: [embed("❌ Failed", result?.message || "Failed.", 0xFF3333)] });
             data.userKeys[target.id] = { key: result.user_key, project: PROJECTS[plan].id, plan };
             saveData();
