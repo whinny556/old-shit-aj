@@ -253,6 +253,53 @@ client.once('clientReady', async () => {
   const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
   console.log('✅ Slash commands registered!');
+
+  // Auto expiry checker - runs every 5 minutes
+  setInterval(async () => {
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const keys = loadJSON(KEYS_FILE);
+      let changed = false;
+
+      for (const [userId, keyData] of Object.entries(keys)) {
+        if (!keyData.expiry) continue;
+        if (now >= keyData.expiry) {
+          console.log(`[EXPIRY] Key expired for user ${userId}: ${keyData.key}`);
+
+          // Reset key in Luarmor so it becomes unassigned and reusable
+          try {
+            await luarmorRequest('PATCH', `/projects/${keyData.project}/users`, {
+              user_key: keyData.key,
+              discord_id: '',
+              identifier: '',
+              auth_expire: -1,
+              banned: false,
+            });
+            console.log(`[EXPIRY] Reset key ${keyData.key} back to pool`);
+          } catch(e) {
+            console.log(`[EXPIRY] Luarmor reset failed for ${keyData.key}, removing locally anyway`);
+          }
+
+          // Notify user their key expired
+          try {
+            const user = await client.users.fetch(userId);
+            await user.send(`⏰ Your **${keyData.plan}** key has expired! Use /buy to purchase again.`);
+          } catch(e) {}
+
+          // Remove from local storage
+          delete keys[userId];
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        saveJSON(KEYS_FILE, keys);
+        console.log('[EXPIRY] Cleaned up expired keys');
+      }
+    } catch(e) {
+      console.error('[EXPIRY] Error in expiry checker:', e);
+    }
+  }, 5 * 60 * 1000); // every 5 minutes
 });
 
 client.on('interactionCreate', async interaction => {
