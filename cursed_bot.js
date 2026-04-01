@@ -220,8 +220,7 @@ const commands = [
       .addChoices({ name: 'Premium', value: 'premium' }, { name: 'Standard', value: 'standard' }))
     .addIntegerOption(o => o.setName('hours').setDescription('Hours').setRequired(true)),
 
-  new SlashCommandBuilder().setName('userinfo').setDescription('[Admin] View a user\'s info or list all active users')
-    .addUserOption(o => o.setName('user').setDescription('Specific user (leave blank to see all active)').setRequired(false)),
+  new SlashCommandBuilder().setName('userinfo').setDescription('[Admin] View all active users with Discord + Roblox info'),
 
   new SlashCommandBuilder().setName('removekey').setDescription('[Admin] Unlink a user\'s key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
@@ -288,8 +287,10 @@ client.once('clientReady', async () => {
             await user.send(`⏰ Your **${keyData.plan}** key has expired! Use /buy to purchase again.`);
           } catch(e) {}
 
-          // Remove from local storage
+          // Remove key data but keep roblox username for next purchase
+          const roblox = keys[userId]?.roblox;
           delete keys[userId];
+          if (roblox) keys[userId] = { roblox };
           changed = true;
         }
       }
@@ -322,20 +323,20 @@ client.on('interactionCreate', async interaction => {
       const keys = loadJSON(KEYS_FILE);
       const now2 = Math.floor(Date.now() / 1000);
 
-      // Build premium slot list
+      // Build premium slot list - show only roblox username
       const premUsers = Object.entries(keys).filter(([,k]) => k.project === PREMIUM_PROJECT && k.expiry && now2 < k.expiry);
       let premLines = `${premTaken}/${PREMIUM_SLOTS} taken | ${PREMIUM_SLOTS - premTaken} available | $${PREMIUM_PRICE}/hr\n`;
       for (const [uid, k] of premUsers) {
-        const roblox = k.roblox ? k.roblox : 'No username set';
-        premLines += `• ${roblox} — expires <t:${k.expiry}:R>\n`;
+        const roblox = k.roblox || 'Unknown';
+        premLines += `• ${roblox}\n`;
       }
 
-      // Build standard slot list
+      // Build standard slot list - show only roblox username
       const stdUsers = Object.entries(keys).filter(([,k]) => k.project === STANDARD_PROJECT && k.expiry && now2 < k.expiry);
       let stdLines = `${stdTaken}/${STANDARD_SLOTS} taken | ${STANDARD_SLOTS - stdTaken} available | $${STANDARD_PRICE}/hr\n`;
       for (const [uid, k] of stdUsers) {
-        const roblox = k.roblox ? k.roblox : 'No username set';
-        stdLines += `• ${roblox} — expires <t:${k.expiry}:R>\n`;
+        const roblox = k.roblox || 'Unknown';
+        stdLines += `• ${roblox}\n`;
       }
 
       const embed = new EmbedBuilder()
@@ -401,9 +402,10 @@ client.on('interactionCreate', async interaction => {
       const totalCost = pricePerHour * hours;
       const bal = getBalance(user.id);
 
-      // Require roblox username before buying
-      const buyerData = loadJSON(KEYS_FILE)[user.id];
-      if (!buyerData?.roblox) return interaction.editReply({ content: '❌ You must set your Roblox username first! Use /setroblox before buying.' });
+      // Require roblox username before buying - only needs to be set once ever
+      const allKeys = loadJSON(KEYS_FILE);
+      const buyerData = allKeys[user.id];
+      if (!buyerData?.roblox) return interaction.editReply({ content: '❌ You must set your Roblox username first! Use /setroblox once before buying.' });
 
       // Check if user already has an active key
       const existingKey = getUserKey(user.id);
@@ -455,15 +457,17 @@ client.on('interactionCreate', async interaction => {
 
     if (commandName === 'setroblox') {
       const username = interaction.options.getString('username');
-      const keyData = getUserKey(user.id);
-      if (keyData) {
-        await luarmorRequest('PATCH', `/projects/${keyData.project}/users`, { user_key: keyData.key, note: `roblox:${username}` });
-      }
+      // Save roblox username permanently - persists across key purchases
       const k = loadJSON(KEYS_FILE);
       if (!k[user.id]) k[user.id] = {};
       k[user.id].roblox = username;
       saveJSON(KEYS_FILE, k);
-      return interaction.editReply({ content: `✅ Roblox username set to **${username}**` });
+      // Also update on Luarmor if they have an active key
+      const keyData = getUserKey(user.id);
+      if (keyData) {
+        try { await luarmorRequest('PATCH', `/projects/${keyData.project}/users`, { user_key: keyData.key, note: `roblox:${username}` }); } catch(e) {}
+      }
+      return interaction.editReply({ content: `✅ Roblox username set to **${username}**! You only need to do this once.` });
     }
 
     // ADMIN COMMANDS
@@ -567,54 +571,28 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (commandName === 'userinfo') {
-      const target = interaction.options.getUser('user');
       const nowTs = Math.floor(Date.now() / 1000);
+      const keys = loadJSON(KEYS_FILE);
+      const active = Object.entries(keys).filter(([,k]) => k.expiry && nowTs < k.expiry);
+      if (active.length === 0) return interaction.editReply({ content: 'No active users right now.' });
 
-      // No user specified - show all active users
-      if (!target) {
-        const keys = loadJSON(KEYS_FILE);
-        const active = Object.entries(keys).filter(([,k]) => k.expiry && nowTs < k.expiry);
-        if (active.length === 0) return interaction.editReply({ content: 'No active users right now.' });
+      let premLines = '**💎 Premium**\n';
+      let stdLines = '**⭐ Standard**\n';
+      let hasPrem = false, hasStd = false;
 
-        let premLines = '**💎 Premium**\n';
-        let stdLines = '**⭐ Standard**\n';
-        let hasPrem = false, hasStd = false;
-
-        for (const [uid, k] of active) {
-          const roblox = k.roblox || 'Not set';
-          let discordName = uid;
-          try { const u = await client.users.fetch(uid); discordName = u.username; } catch(e) {}
-          const line = `• **${discordName}** — ${roblox} — expires <t:${k.expiry}:R>\n`;
-          if (k.project === PREMIUM_PROJECT) { premLines += line; hasPrem = true; }
-          else { stdLines += line; hasStd = true; }
-        }
-
-        let msg = '';
-        if (hasPrem) msg += premLines + '\n';
-        if (hasStd) msg += stdLines;
-        return interaction.editReply({ content: msg });
+      for (const [uid, k] of active) {
+        const roblox = k.roblox || 'Not set';
+        let discordName = uid;
+        try { const u = await client.users.fetch(uid); discordName = u.username; } catch(e) {}
+        const line = `• **${discordName}** — ${roblox} — expires <t:${k.expiry}:R>\n`;
+        if (k.project === PREMIUM_PROJECT) { premLines += line; hasPrem = true; }
+        else { stdLines += line; hasStd = true; }
       }
 
-      // Specific user
-      const keyData = getUserKey(target.id);
-      const bal = getBalance(target.id);
-      const k = loadJSON(KEYS_FILE)[target.id];
-      const embed = new EmbedBuilder().setTitle(`👤 ${target.username}`).setColor(0x2b2d31)
-        .addFields(
-          { name: 'Balance', value: `$${bal.toFixed(2)}`, inline: true },
-          { name: 'Roblox', value: k?.roblox || 'Not set', inline: true }
-        );
-      if (keyData) {
-        embed.addFields(
-          { name: 'Plan', value: keyData.plan, inline: true },
-          { name: 'Key', value: `||${keyData.key}||`, inline: false },
-          { name: 'Status', value: '🟢 Active', inline: true },
-          { name: 'Expires', value: keyData.expiry ? `<t:${keyData.expiry}:F>` : 'Never', inline: true }
-        );
-      } else {
-        embed.addFields({ name: 'Key', value: 'None', inline: true });
-      }
-      return interaction.editReply({ embeds: [embed] });
+      let msg = '';
+      if (hasPrem) msg += premLines + '\n';
+      if (hasStd) msg += stdLines;
+      return interaction.editReply({ content: msg });
     }
 
     if (commandName === 'removekey') {
