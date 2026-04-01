@@ -328,7 +328,7 @@ client.on('interactionCreate', async interaction => {
       let premLines = `${premTaken}/${PREMIUM_SLOTS} taken | ${PREMIUM_SLOTS - premTaken} available | $${PREMIUM_PRICE}/hr\n`;
       for (const [uid, k] of premUsers) {
         const roblox = k.roblox || 'Unknown';
-        premLines += `• ${roblox}\n`;
+        premLines += `• ${roblox} — <t:${k.expiry}:R>\n`;
       }
 
       // Build standard slot list - show only roblox username
@@ -336,7 +336,7 @@ client.on('interactionCreate', async interaction => {
       let stdLines = `${stdTaken}/${STANDARD_SLOTS} taken | ${STANDARD_SLOTS - stdTaken} available | $${STANDARD_PRICE}/hr\n`;
       for (const [uid, k] of stdUsers) {
         const roblox = k.roblox || 'Unknown';
-        stdLines += `• ${roblox}\n`;
+        stdLines += `• ${roblox} — <t:${k.expiry}:R>\n`;
       }
 
       const embed = new EmbedBuilder()
