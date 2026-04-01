@@ -10,6 +10,36 @@ const STANDARD_PROJECT = '01a8d5a1daeaae85268208d81d403e2d';
 
 const PREMIUM_SLOTS = 8;
 const STANDARD_SLOTS = 15;
+
+// Key pools - stored directly in bot
+const PREMIUM_KEYS = [
+  'jHhdvcKdxsSOhDTmRGEfRTPPhtXiKlbi',
+  'FEKnGciFiYakLhnVnoqKjujdTYmbJFjg',
+  'lSskpNtrbSwVUvIaCTdrKUgImZTaHtjA',
+  'DQGTYtkTFTbCniykDRRLeMkjtSDwwKHJ',
+  'aGQvYLlrICCEHHrOaWJbHXlatQbsagRd',
+  'QLPGEbzyNyDFnUxzVUfpKSAnwoHpKrxH',
+  'yQuYWSQVDRCVNeycwfWeqsGrDCOsKyBy',
+  'UeYWyKkXCwLSzXtzAaEXsiODdNBmmuhZ',
+];
+
+const STANDARD_KEYS = [
+  'jYGrHTLEMAXOJqTSsTXdPbGtKrZQGLOj',
+  'SLRiabuFsCInJOPXZUzPQjMaHfJILsJK',
+  'DrOhVJBkxKTIRcINgYeQypjeqBiFdkNA',
+  'lrrsBWwcDQLZdJuECKvzdqSRXVfbmRGw',
+  'ezvRGoBqNBURfyrTvCTKUKyEAiNBCfSw',
+  'OHVRneKInOdvjhKGjzfWBEjSNxqQUzCY',
+  'RAZTIBugmPUXLDulgAYpGttFfgBWwNbj',
+  'QLKsxRPuOQReAnjiFYugiSVfxAGvthrx',
+  'oywncKGTqzjiWAZVSslNzuZKhqFzsrnA',
+  'DozbYXFdWhaArBhutbxAryCJlWNobDJT',
+  'hemftcHVVffHRRJErgmyJCbMxGLYydLT',
+  'hQzxYpyeGnobdNcTMNTknZiaqeKueEZj',
+  'YJHIxTReBPZNJioEHaIZPSgCMmPopRSU',
+  'gWdOqNHTxdUPzfOUqdyfewhwkxyOswgq',
+  'mCjRziClctcIyTqtZUZvcardQlsGAeIw',
+];
 const PREMIUM_PRICE = 8;
 const STANDARD_PRICE = 4;
 const MIN_HOURS = 2;
@@ -75,18 +105,19 @@ async function getProjectUsers(projectId) {
   return [];
 }
 
+function getKeyPool(projectId) {
+  return projectId === PREMIUM_PROJECT ? PREMIUM_KEYS : STANDARD_KEYS;
+}
+
 async function getAvailableKey(projectId) {
-  const users = await getProjectUsers(projectId);
-  console.log(`getAvailableKey: total=${users.length}, first=`, users[0]);
-  // Find a key with no identifier (unassigned/unclaimed)
-  console.log("All users sample:", JSON.stringify(users.slice(0,2)));
-  const available = users.find(u => {
-    const noDiscord = !u.discord_id || u.discord_id === '' || u.discord_id === null || u.discord_id === '0';
-    const noIdentifier = !u.identifier || u.identifier === '' || u.identifier === null;
-    const notBanned = u.banned !== true;
-    return (noDiscord || noIdentifier) && notBanned;
-  });
-  return available || null;
+  const pool = getKeyPool(projectId);
+  const keys = loadJSON(KEYS_FILE);
+  const usedKeys = Object.values(keys)
+    .filter(k => k.project === projectId)
+    .map(k => k.key);
+  const available = pool.find(k => !usedKeys.includes(k));
+  console.log(`getAvailableKey: pool=${pool.length}, used=${usedKeys.length}, found=${available || 'none'}`);
+  return available ? { user_key: available } : null;
 }
 
 async function assignKey(projectId, userKey, discordId, expiryTimestamp) {
@@ -116,8 +147,8 @@ async function getUserByDiscord(projectId, discordId) {
 }
 
 async function getSlotCount(projectId) {
-  const users = await getProjectUsers(projectId);
-  const taken = users.filter(u => u.discord_id && u.discord_id !== '').length;
+  const keys = loadJSON(KEYS_FILE);
+  const taken = Object.values(keys).filter(k => k.project === projectId).length;
   return taken;
 }
 
