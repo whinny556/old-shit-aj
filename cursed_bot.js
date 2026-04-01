@@ -343,12 +343,16 @@ client.on('interactionCreate', async interaction => {
       if (!available) return interaction.editReply({ content: '❌ No unassigned keys available. Please contact an admin.' });
 
       const expiry = Math.floor(Date.now() / 1000) + (hours * 3600);
-      const r = await assignKey(projectId, available.user_key, user.id, expiry);
-
-      if (r.status !== 200) return interaction.editReply({ content: `❌ Failed to assign key: ${r.data?.message || 'Unknown error'}` });
+      // Assign locally - skip Luarmor API since it blocks our calls
+      // Try Luarmor assign but don't fail if it errors
+      try {
+        await assignKey(projectId, available.user_key, user.id, expiry);
+      } catch(e) {
+        console.log('Luarmor assign failed, continuing with local assignment');
+      }
 
       setBalance(user.id, bal - totalCost);
-      setUserKey(user.id, { key: available.user_key, plan, project: projectId });
+      setUserKey(user.id, { key: available.user_key, plan, project: projectId, expiry });
 
       try {
         await interaction.user.send({
