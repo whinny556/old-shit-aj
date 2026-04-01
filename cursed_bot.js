@@ -244,6 +244,8 @@ const commands = [
 
   new SlashCommandBuilder().setName('resetroblox').setDescription('[Admin] Reset a user\'s Roblox username')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
+
+  new SlashCommandBuilder().setName('activeslots').setDescription('[Admin] View all active slots with Discord + Roblox usernames'),
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -306,7 +308,7 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, member, user } = interaction;
 
-  const adminOnly = ['addbalance','removebalance','addtime','removetime','adminresethwid','blacklist','unblacklist','createkey','deletekey','givekey','userinfo','removekey','listkeys','compensate','unfreeze','extend','resetroblox'];
+  const adminOnly = ['addbalance','removebalance','addtime','removetime','adminresethwid','blacklist','unblacklist','createkey','deletekey','givekey','userinfo','removekey','listkeys','compensate','unfreeze','extend','resetroblox','activeslots'];
   if (adminOnly.includes(commandName) && !isAdmin(member)) {
     return interaction.reply({ content: '❌ You do not have permission to use this command.', ephemeral: true });
   }
@@ -317,12 +319,31 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'slots') {
       const premTaken = await getSlotCount(PREMIUM_PROJECT);
       const stdTaken = await getSlotCount(STANDARD_PROJECT);
+      const keys = loadJSON(KEYS_FILE);
+      const now2 = Math.floor(Date.now() / 1000);
+
+      // Build premium slot list
+      const premUsers = Object.entries(keys).filter(([,k]) => k.project === PREMIUM_PROJECT && k.expiry && now2 < k.expiry);
+      let premLines = `${premTaken}/${PREMIUM_SLOTS} taken | ${PREMIUM_SLOTS - premTaken} available | $${PREMIUM_PRICE}/hr\n`;
+      for (const [uid, k] of premUsers) {
+        const roblox = k.roblox ? k.roblox : 'No username set';
+        premLines += `• ${roblox} — expires <t:${k.expiry}:R>\n`;
+      }
+
+      // Build standard slot list
+      const stdUsers = Object.entries(keys).filter(([,k]) => k.project === STANDARD_PROJECT && k.expiry && now2 < k.expiry);
+      let stdLines = `${stdTaken}/${STANDARD_SLOTS} taken | ${STANDARD_SLOTS - stdTaken} available | $${STANDARD_PRICE}/hr\n`;
+      for (const [uid, k] of stdUsers) {
+        const roblox = k.roblox ? k.roblox : 'No username set';
+        stdLines += `• ${roblox} — expires <t:${k.expiry}:R>\n`;
+      }
+
       const embed = new EmbedBuilder()
         .setTitle('🎰 Available Slots')
         .setColor(0x2b2d31)
         .addFields(
-          { name: '💎 Premium', value: `${premTaken}/${PREMIUM_SLOTS} taken\n${PREMIUM_SLOTS - premTaken} available\n$${PREMIUM_PRICE}/hr (min 2hr)`, inline: true },
-          { name: '⭐ Standard', value: `${stdTaken}/${STANDARD_SLOTS} taken\n${STANDARD_SLOTS - stdTaken} available\n$${STANDARD_PRICE}/hr (min 2hr)`, inline: true }
+          { name: '💎 Premium', value: premLines || 'No active users', inline: false },
+          { name: '⭐ Standard', value: stdLines || 'No active users', inline: false }
         );
       return interaction.editReply({ embeds: [embed] });
     }
@@ -379,6 +400,15 @@ client.on('interactionCreate', async interaction => {
       const pricePerHour = plan === 'premium' ? PREMIUM_PRICE : STANDARD_PRICE;
       const totalCost = pricePerHour * hours;
       const bal = getBalance(user.id);
+
+      // Check if user already has an active key
+      const existingKey = getUserKey(user.id);
+      if (existingKey) {
+        const now = Math.floor(Date.now() / 1000);
+        if (existingKey.expiry && now < existingKey.expiry) {
+          return interaction.editReply({ content: `❌ You already have an active **${existingKey.plan}** key that expires <t:${existingKey.expiry}:R>. Wait for it to expire before buying again.` });
+        }
+      }
 
       if (bal < totalCost) return interaction.editReply({ content: `❌ Insufficient balance. You have **$${bal.toFixed(2)}** but need **$${totalCost.toFixed(2)}**.` });
 
@@ -600,6 +630,31 @@ client.on('interactionCreate', async interaction => {
       const newExpiry = currentExpiry + (hours * 3600);
       await luarmorRequest('PATCH', `/projects/${keyData.project}/users`, { user_key: keyData.key, auth_expire: newExpiry });
       return interaction.editReply({ content: `✅ Extended ${target.username} by ${hours}h. New expiry: <t:${newExpiry}:F>` });
+    }
+
+    if (commandName === 'activeslots') {
+      const keys = loadJSON(KEYS_FILE);
+      const nowTs = Math.floor(Date.now() / 1000);
+      const active = Object.entries(keys).filter(([,k]) => k.expiry && nowTs < k.expiry);
+
+      if (active.length === 0) return interaction.editReply({ content: 'No active slots right now.' });
+
+      let premLines = '**💎 Premium**\n';
+      let stdLines = '**⭐ Standard**\n';
+      let hasPrem = false, hasStd = false;
+
+      for (const [uid, k] of active) {
+        const roblox = k.roblox || 'Not set';
+        const line = `<@${uid}> — ${roblox} — expires <t:${k.expiry}:R>\n`;
+        if (k.project === PREMIUM_PROJECT) { premLines += line; hasPrem = true; }
+        else { stdLines += line; hasStd = true; }
+      }
+
+      let msg = '';
+      if (hasPrem) msg += premLines + '\n';
+      if (hasStd) msg += stdLines;
+
+      return interaction.editReply({ content: msg || 'No active slots.' });
     }
 
     if (commandName === 'resetroblox') {
