@@ -220,8 +220,8 @@ const commands = [
       .addChoices({ name: 'Premium', value: 'premium' }, { name: 'Standard', value: 'standard' }))
     .addIntegerOption(o => o.setName('hours').setDescription('Hours').setRequired(true)),
 
-  new SlashCommandBuilder().setName('userinfo').setDescription('[Admin] View a user\'s info')
-    .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
+  new SlashCommandBuilder().setName('userinfo').setDescription('[Admin] View a user\'s info or list all active users')
+    .addUserOption(o => o.setName('user').setDescription('Specific user (leave blank to see all active)').setRequired(false)),
 
   new SlashCommandBuilder().setName('removekey').setDescription('[Admin] Unlink a user\'s key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
@@ -245,7 +245,7 @@ const commands = [
   new SlashCommandBuilder().setName('resetroblox').setDescription('[Admin] Reset a user\'s Roblox username')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
 
-  new SlashCommandBuilder().setName('activeslots').setDescription('[Admin] View all active slots with Discord + Roblox usernames'),
+
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -308,7 +308,7 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, member, user } = interaction;
 
-  const adminOnly = ['addbalance','removebalance','addtime','removetime','adminresethwid','blacklist','unblacklist','createkey','deletekey','givekey','userinfo','removekey','listkeys','compensate','unfreeze','extend','resetroblox','activeslots'];
+  const adminOnly = ['addbalance','removebalance','addtime','removetime','adminresethwid','blacklist','unblacklist','createkey','deletekey','givekey','userinfo','removekey','listkeys','compensate','unfreeze','extend','resetroblox'];
   if (adminOnly.includes(commandName) && !isAdmin(member)) {
     return interaction.reply({ content: '❌ You do not have permission to use this command.', ephemeral: true });
   }
@@ -400,6 +400,10 @@ client.on('interactionCreate', async interaction => {
       const pricePerHour = plan === 'premium' ? PREMIUM_PRICE : STANDARD_PRICE;
       const totalCost = pricePerHour * hours;
       const bal = getBalance(user.id);
+
+      // Require roblox username before buying
+      const buyerData = loadJSON(KEYS_FILE)[user.id];
+      if (!buyerData?.roblox) return interaction.editReply({ content: '❌ You must set your Roblox username first! Use /setroblox before buying.' });
 
       // Check if user already has an active key
       const existingKey = getUserKey(user.id);
@@ -564,22 +568,51 @@ client.on('interactionCreate', async interaction => {
 
     if (commandName === 'userinfo') {
       const target = interaction.options.getUser('user');
+      const nowTs = Math.floor(Date.now() / 1000);
+
+      // No user specified - show all active users
+      if (!target) {
+        const keys = loadJSON(KEYS_FILE);
+        const active = Object.entries(keys).filter(([,k]) => k.expiry && nowTs < k.expiry);
+        if (active.length === 0) return interaction.editReply({ content: 'No active users right now.' });
+
+        let premLines = '**💎 Premium**\n';
+        let stdLines = '**⭐ Standard**\n';
+        let hasPrem = false, hasStd = false;
+
+        for (const [uid, k] of active) {
+          const roblox = k.roblox || 'Not set';
+          let discordName = uid;
+          try { const u = await client.users.fetch(uid); discordName = u.username; } catch(e) {}
+          const line = `• **${discordName}** — ${roblox} — expires <t:${k.expiry}:R>\n`;
+          if (k.project === PREMIUM_PROJECT) { premLines += line; hasPrem = true; }
+          else { stdLines += line; hasStd = true; }
+        }
+
+        let msg = '';
+        if (hasPrem) msg += premLines + '\n';
+        if (hasStd) msg += stdLines;
+        return interaction.editReply({ content: msg });
+      }
+
+      // Specific user
       const keyData = getUserKey(target.id);
       const bal = getBalance(target.id);
+      const k = loadJSON(KEYS_FILE)[target.id];
       const embed = new EmbedBuilder().setTitle(`👤 ${target.username}`).setColor(0x2b2d31)
-        .addFields({ name: 'Balance', value: `$${bal.toFixed(2)}`, inline: true });
+        .addFields(
+          { name: 'Balance', value: `$${bal.toFixed(2)}`, inline: true },
+          { name: 'Roblox', value: k?.roblox || 'Not set', inline: true }
+        );
       if (keyData) {
-        const luUser = await getUserByDiscord(keyData.project, target.id);
-        if (luUser) {
-          embed.addFields(
-            { name: 'Plan', value: keyData.plan, inline: true },
-            { name: 'Key', value: `||${luUser.user_key}||`, inline: false },
-            { name: 'Status', value: luUser.banned ? '🔴 Banned' : '🟢 Active', inline: true },
-            { name: 'Expires', value: luUser.auth_expire > 0 ? `<t:${luUser.auth_expire}:F>` : 'Never', inline: true }
-          );
-        }
+        embed.addFields(
+          { name: 'Plan', value: keyData.plan, inline: true },
+          { name: 'Key', value: `||${keyData.key}||`, inline: false },
+          { name: 'Status', value: '🟢 Active', inline: true },
+          { name: 'Expires', value: keyData.expiry ? `<t:${keyData.expiry}:F>` : 'Never', inline: true }
+        );
       } else {
-        embed.addFields({ name: 'Key', value: 'None linked', inline: true });
+        embed.addFields({ name: 'Key', value: 'None', inline: true });
       }
       return interaction.editReply({ embeds: [embed] });
     }
@@ -630,31 +663,6 @@ client.on('interactionCreate', async interaction => {
       const newExpiry = currentExpiry + (hours * 3600);
       await luarmorRequest('PATCH', `/projects/${keyData.project}/users`, { user_key: keyData.key, auth_expire: newExpiry });
       return interaction.editReply({ content: `✅ Extended ${target.username} by ${hours}h. New expiry: <t:${newExpiry}:F>` });
-    }
-
-    if (commandName === 'activeslots') {
-      const keys = loadJSON(KEYS_FILE);
-      const nowTs = Math.floor(Date.now() / 1000);
-      const active = Object.entries(keys).filter(([,k]) => k.expiry && nowTs < k.expiry);
-
-      if (active.length === 0) return interaction.editReply({ content: 'No active slots right now.' });
-
-      let premLines = '**💎 Premium**\n';
-      let stdLines = '**⭐ Standard**\n';
-      let hasPrem = false, hasStd = false;
-
-      for (const [uid, k] of active) {
-        const roblox = k.roblox || 'Not set';
-        const line = `<@${uid}> — ${roblox} — expires <t:${k.expiry}:R>\n`;
-        if (k.project === PREMIUM_PROJECT) { premLines += line; hasPrem = true; }
-        else { stdLines += line; hasStd = true; }
-      }
-
-      let msg = '';
-      if (hasPrem) msg += premLines + '\n';
-      if (hasStd) msg += stdLines;
-
-      return interaction.editReply({ content: msg || 'No active slots.' });
     }
 
     if (commandName === 'resetroblox') {
