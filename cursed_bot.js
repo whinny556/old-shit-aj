@@ -324,7 +324,7 @@ client.on('interactionCreate', async interaction => {
       const now2 = Math.floor(Date.now() / 1000);
 
       // Build premium slot list - show only roblox username
-      const premUsers = Object.entries(keys).filter(([,k]) => k.project === PREMIUM_PROJECT && k.expiry && now2 < k.expiry);
+      const premUsers = Object.entries(keys).filter(([,k]) => k.key && k.project === PREMIUM_PROJECT && k.expiry && now2 < k.expiry);
       let premLines = `${premTaken}/${PREMIUM_SLOTS} taken | ${PREMIUM_SLOTS - premTaken} available | $${PREMIUM_PRICE}/hr\n`;
       for (const [uid, k] of premUsers) {
         const roblox = k.roblox || 'Unknown';
@@ -332,7 +332,7 @@ client.on('interactionCreate', async interaction => {
       }
 
       // Build standard slot list - show only roblox username
-      const stdUsers = Object.entries(keys).filter(([,k]) => k.project === STANDARD_PROJECT && k.expiry && now2 < k.expiry);
+      const stdUsers = Object.entries(keys).filter(([,k]) => k.key && k.project === STANDARD_PROJECT && k.expiry && now2 < k.expiry);
       let stdLines = `${stdTaken}/${STANDARD_SLOTS} taken | ${STANDARD_SLOTS - stdTaken} available | $${STANDARD_PRICE}/hr\n`;
       for (const [uid, k] of stdUsers) {
         const roblox = k.roblox || 'Unknown';
@@ -402,19 +402,16 @@ client.on('interactionCreate', async interaction => {
       const totalCost = pricePerHour * hours;
       const bal = getBalance(user.id);
 
-      // Require roblox username before buying - only needs to be set once ever
+      // Check if user already has an active key FIRST
       const allKeys = loadJSON(KEYS_FILE);
-      const buyerData = allKeys[user.id];
-      if (!buyerData?.roblox) return interaction.editReply({ content: '❌ You must set your Roblox username first! Use /setroblox once before buying.' });
-
-      // Check if user already has an active key
-      const existingKey = getUserKey(user.id);
-      if (existingKey) {
-        const now = Math.floor(Date.now() / 1000);
-        if (existingKey.expiry && now < existingKey.expiry) {
-          return interaction.editReply({ content: `❌ You already have an active **${existingKey.plan}** key that expires <t:${existingKey.expiry}:R>. Wait for it to expire before buying again.` });
-        }
+      const existingKey = allKeys[user.id];
+      const nowCheck = Math.floor(Date.now() / 1000);
+      if (existingKey?.key && existingKey?.expiry && nowCheck < existingKey.expiry) {
+        return interaction.editReply({ content: `❌ You already have an active **${existingKey.plan}** key that expires <t:${existingKey.expiry}:R>. Wait for it to expire before buying again.` });
       }
+
+      // Require roblox username before buying
+      if (!allKeys[user.id]?.roblox) return interaction.editReply({ content: '❌ You must set your Roblox username first! Use /setroblox once before buying.' });
 
       if (bal < totalCost) return interaction.editReply({ content: `❌ Insufficient balance. You have **$${bal.toFixed(2)}** but need **$${totalCost.toFixed(2)}**.` });
 
@@ -435,7 +432,10 @@ client.on('interactionCreate', async interaction => {
       }
 
       setBalance(user.id, bal - totalCost);
-      setUserKey(user.id, { key: available.user_key, plan, project: projectId, expiry });
+      const existingData = loadJSON(KEYS_FILE)[user.id] || {};
+      const k2 = loadJSON(KEYS_FILE);
+      k2[user.id] = { ...existingData, key: available.user_key, plan, project: projectId, expiry };
+      saveJSON(KEYS_FILE, k2);
 
       try {
         await interaction.user.send({
@@ -573,7 +573,7 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'userinfo') {
       const nowTs = Math.floor(Date.now() / 1000);
       const keys = loadJSON(KEYS_FILE);
-      const active = Object.entries(keys).filter(([,k]) => k.expiry && nowTs < k.expiry);
+      const active = Object.entries(keys).filter(([,k]) => k.key && k.expiry && nowTs < k.expiry);
       if (active.length === 0) return interaction.editReply({ content: 'No active users right now.' });
 
       let premLines = '**💎 Premium**\n';
