@@ -79,11 +79,13 @@ async function getAvailableKey(projectId) {
   const users = await getProjectUsers(projectId);
   console.log(`getAvailableKey: total=${users.length}, first=`, users[0]);
   // Find a key with no identifier (unassigned/unclaimed)
-  const available = users.find(u =>
-    (!u.identifier || u.identifier === '' || u.identifier === null) &&
-    (!u.discord_id || u.discord_id === '' || u.discord_id === null) &&
-    u.banned !== true
-  );
+  console.log("All users sample:", JSON.stringify(users.slice(0,2)));
+  const available = users.find(u => {
+    const noDiscord = !u.discord_id || u.discord_id === '' || u.discord_id === null || u.discord_id === '0';
+    const noIdentifier = !u.identifier || u.identifier === '' || u.identifier === null;
+    const notBanned = u.banned !== true;
+    return (noDiscord || noIdentifier) && notBanned;
+  });
   return available || null;
 }
 
