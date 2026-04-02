@@ -93,7 +93,6 @@ async function luarmorRequest(method, path, body = null) {
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
   const text = await res.text();
-  console.log(`Luarmor ${method} ${path} → ${res.status}: ${text.substring(0, 200)}`);
   try { return { status: res.status, data: JSON.parse(text) }; }
   catch { return { status: res.status, data: text }; }
 }
@@ -117,7 +116,7 @@ async function getAvailableKey(projectId) {
     .filter(k => k.project === projectId)
     .map(k => k.key);
   const available = pool.find(k => !usedKeys.includes(k));
-  console.log(`getAvailableKey: pool=${pool.length}, used=${usedKeys.length}, found=${available || 'none'}`);
+
   return available ? { user_key: available } : null;
 }
 
