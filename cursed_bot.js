@@ -4,6 +4,7 @@ const fs = require('fs');
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ROLE = process.env.ADMIN_ROLE;
 const LUARMOR_KEY = process.env.LUARMOR_KEY;
+const GUILD_ID = '1154193983766011934';
 
 const PREMIUM_PROJECT = '8b3909f9359e16e6c5429c23f47a27ef';
 const STANDARD_PROJECT = '01a8d5a1daeaae85268208d81d403e2d';
@@ -252,7 +253,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.once('clientReady', async () => {
   console.log(`✅ Cursed Notifier Bot online as ${client.user.tag}`);
   const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
-  await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+  await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
   console.log('✅ Slash commands registered!');
 
   // Auto expiry checker - runs every 5 minutes
