@@ -250,10 +250,14 @@ const commands = [
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 client.once('clientReady', async () => {
-  console.log(`✅ Cursed Notifier Bot online as ${client.user.tag}`);
-  const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
-  await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
-  console.log('✅ Slash commands registered!');
+  console.log('Bot ready: ' + client.user.tag);
+  try {
+    const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
+    await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
+    console.log('Commands registered OK');
+  } catch(e) {
+    console.error('Command register failed:', e.message);
+  }
 
   // Auto expiry checker - runs every 5 minutes
   setInterval(async () => {
