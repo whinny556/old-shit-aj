@@ -13,7 +13,7 @@ const PREMIUM_PRICE = 6;
 const STANDARD_PRICE = 4;
 
 const PREMIUM_KEYS = [
-  'CcCZRbdCARVxKYlzCccefrBsNvoAjJuN',
+
   'ktZCuIJlZdqVGOwVEkgeYKivKzQbWjIx',
   'IvruORHLeVZWgsAtHJXwgVIWAvdZWeQw',
   'aPIuVxuzohidxeufbBarcJKrAyVzxVfI',
