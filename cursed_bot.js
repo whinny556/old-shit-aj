@@ -12,7 +12,6 @@ const STANDARD_PROJECT = '01a8d5a1daeaae85268208d81d403e2d';
 const PREMIUM_SLOTS = 8;
 const STANDARD_SLOTS = 15;
 
-// Key pools - stored directly in bot
 const PREMIUM_KEYS = [
   'jHhdvcKdxsSOhDTmRGEfRTPPhtXiKlbi',
   'FEKnGciFiYakLhnVnoqKjujdTYmbJFjg',
@@ -41,7 +40,8 @@ const STANDARD_KEYS = [
   'gWdOqNHTxdUPzfOUqdyfewhwkxyOswgq',
   'mCjRziClctcIyTqtZUZvcardQlsGAeIw',
 ];
-const PREMIUM_PRICE = 8;
+
+const PREMIUM_PRICE = 6;
 const STANDARD_PRICE = 4;
 const MIN_HOURS = 2;
 
@@ -54,7 +54,6 @@ function loadJSON(file) {
 function saveJSON(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
-
 function getBalance(userId) {
   const b = loadJSON(BALANCE_FILE);
   return b[userId] || 0;
@@ -64,7 +63,6 @@ function setBalance(userId, amount) {
   b[userId] = amount;
   saveJSON(BALANCE_FILE, b);
 }
-
 function getUserKey(userId) {
   const k = loadJSON(KEYS_FILE);
   return k[userId] || null;
@@ -80,16 +78,9 @@ function removeUserKey(userId) {
   saveJSON(KEYS_FILE, k);
 }
 
-// CORRECT Luarmor API call - authorization header is just the API key, no Bearer
 async function luarmorRequest(method, path, body = null) {
   const url = `https://api.luarmor.net/v3${path}`;
-  const opts = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'authorization': LUARMOR_KEY
-    }
-  };
+  const opts = { method, headers: { 'Content-Type': 'application/json', 'authorization': LUARMOR_KEY } };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
   const text = await res.text();
@@ -104,147 +95,101 @@ async function getProjectUsers(projectId) {
   if (r.data && Array.isArray(r.data.users)) return r.data.users;
   return [];
 }
-
 function getKeyPool(projectId) {
   return projectId === PREMIUM_PROJECT ? PREMIUM_KEYS : STANDARD_KEYS;
 }
-
 async function getAvailableKey(projectId) {
   const pool = getKeyPool(projectId);
   const keys = loadJSON(KEYS_FILE);
-  const usedKeys = Object.values(keys)
-    .filter(k => k.project === projectId)
-    .map(k => k.key);
+  const usedKeys = Object.values(keys).filter(k => k.project === projectId).map(k => k.key);
   const available = pool.find(k => !usedKeys.includes(k));
-
   return available ? { user_key: available } : null;
 }
-
 async function assignKey(projectId, userKey, discordId, expiryTimestamp) {
-  return await luarmorRequest('PATCH', `/projects/${projectId}/users`, {
-    user_key: userKey,
-    discord_id: discordId,
-    auth_expire: expiryTimestamp
-  });
+  return await luarmorRequest('PATCH', `/projects/${projectId}/users`, { user_key: userKey, discord_id: discordId, auth_expire: expiryTimestamp });
 }
-
 async function resetHWID(projectId, userKey, force = false) {
-  return await luarmorRequest('POST', `/projects/${projectId}/users/resethwid`, {
-    user_key: userKey,
-    force
-  });
+  return await luarmorRequest('POST', `/projects/${projectId}/users/resethwid`, { user_key: userKey, force });
 }
-
 async function deleteKey(projectId, userKey) {
   return await luarmorRequest('DELETE', `/projects/${projectId}/users?user_key=${userKey}`);
 }
-
 async function getUserByDiscord(projectId, discordId) {
   const r = await luarmorRequest('GET', `/projects/${projectId}/users?discord_id=${discordId}`);
   if (r.status !== 200) return null;
   const users = Array.isArray(r.data) ? r.data : (r.data?.users || []);
   return users[0] || null;
 }
-
 async function getSlotCount(projectId) {
   const keys = loadJSON(KEYS_FILE);
-  const taken = Object.values(keys).filter(k => k.project === projectId).length;
-  return taken;
+  return Object.values(keys).filter(k => k.project === projectId).length;
 }
-
 function isAdmin(member) {
   return member.roles.cache.has(ADMIN_ROLE);
 }
 
-// Commands
 const commands = [
   new SlashCommandBuilder().setName('key').setDescription('Link your Luarmor key')
     .addStringOption(o => o.setName('key').setDescription('Your key').setRequired(true))
     .addStringOption(o => o.setName('plan').setDescription('premium or standard').setRequired(true)
       .addChoices({ name: 'Premium', value: 'premium' }, { name: 'Standard', value: 'standard' })),
-
   new SlashCommandBuilder().setName('info').setDescription('Check your key info'),
-
   new SlashCommandBuilder().setName('resethwid').setDescription('Reset your HWID (24h cooldown)'),
-
   new SlashCommandBuilder().setName('balance').setDescription('Check your balance'),
-
   new SlashCommandBuilder().setName('buy').setDescription('Buy access using your balance')
     .addStringOption(o => o.setName('plan').setDescription('Plan').setRequired(true)
-      .addChoices({ name: 'Premium - $8/hr', value: 'premium' }, { name: 'Standard - $4/hr', value: 'standard' }))
+      .addChoices({ name: 'Premium - $6/hr', value: 'premium' }, { name: 'Standard - $4/hr', value: 'standard' }))
     .addIntegerOption(o => o.setName('hours').setDescription('Hours (min 2)').setRequired(true).setMinValue(2)),
-
   new SlashCommandBuilder().setName('slots').setDescription('View available slots'),
-
   new SlashCommandBuilder().setName('setroblox').setDescription('Set your Roblox username')
     .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true)),
-
-  // Admin commands
   new SlashCommandBuilder().setName('addbalance').setDescription('[Admin] Add balance to a user')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true))
     .addNumberOption(o => o.setName('amount').setDescription('Amount').setRequired(true)),
-
   new SlashCommandBuilder().setName('removebalance').setDescription('[Admin] Remove balance from a user')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true))
     .addNumberOption(o => o.setName('amount').setDescription('Amount').setRequired(true)),
-
   new SlashCommandBuilder().setName('addtime').setDescription('[Admin] Add time to a user\'s key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true))
     .addIntegerOption(o => o.setName('hours').setDescription('Hours to add').setRequired(true)),
-
   new SlashCommandBuilder().setName('removetime').setDescription('[Admin] Remove time from a user\'s key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true))
     .addIntegerOption(o => o.setName('hours').setDescription('Hours to remove').setRequired(true)),
-
   new SlashCommandBuilder().setName('adminresethwid').setDescription('[Admin] Force reset a user\'s HWID')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
-
   new SlashCommandBuilder().setName('blacklist').setDescription('[Admin] Blacklist a user')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true))
     .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
-
   new SlashCommandBuilder().setName('unblacklist').setDescription('[Admin] Unblacklist a user')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
-
   new SlashCommandBuilder().setName('createkey').setDescription('[Admin] Create a new key manually')
     .addStringOption(o => o.setName('plan').setDescription('Plan').setRequired(true)
       .addChoices({ name: 'Premium', value: 'premium' }, { name: 'Standard', value: 'standard' }))
     .addIntegerOption(o => o.setName('hours').setDescription('Hours').setRequired(true)),
-
   new SlashCommandBuilder().setName('deletekey').setDescription('[Admin] Delete a user\'s key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
-
   new SlashCommandBuilder().setName('givekey').setDescription('[Admin] Give a user a key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true))
     .addStringOption(o => o.setName('plan').setDescription('Plan').setRequired(true)
       .addChoices({ name: 'Premium', value: 'premium' }, { name: 'Standard', value: 'standard' }))
     .addIntegerOption(o => o.setName('hours').setDescription('Hours').setRequired(true)),
-
   new SlashCommandBuilder().setName('userinfo').setDescription('[Admin] View all active users with Discord + Roblox info'),
-
   new SlashCommandBuilder().setName('removekey').setDescription('[Admin] Unlink a user\'s key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
-
   new SlashCommandBuilder().setName('listkeys').setDescription('[Admin] List all keys')
     .addStringOption(o => o.setName('plan').setDescription('Plan').setRequired(true)
       .addChoices({ name: 'Premium', value: 'premium' }, { name: 'Standard', value: 'standard' })),
-
   new SlashCommandBuilder().setName('compensate').setDescription('[Admin] Compensate a user with balance')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true))
     .addNumberOption(o => o.setName('amount').setDescription('Amount').setRequired(true))
     .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
-
   new SlashCommandBuilder().setName('unfreeze').setDescription('[Admin] Unfreeze a user\'s key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
-
   new SlashCommandBuilder().setName('extend').setDescription('[Admin] Extend a user\'s key')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true))
     .addIntegerOption(o => o.setName('hours').setDescription('Hours to extend').setRequired(true)),
-
   new SlashCommandBuilder().setName('resetroblox').setDescription('[Admin] Reset a user\'s Roblox username')
     .addUserOption(o => o.setName('user').setDescription('User').setRequired(true)),
-
-
 ].map(c => c.toJSON());
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -255,58 +200,34 @@ client.once('clientReady', async () => {
     const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
     await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
     console.log('Commands registered OK');
-  } catch(e) {
-    console.error('Command register failed:', e.message);
-  }
+  } catch(e) { console.error('Command register failed:', e.message); }
 
-  // Auto expiry checker - runs every 5 minutes
   setInterval(async () => {
     try {
       const now = Math.floor(Date.now() / 1000);
       const keys = loadJSON(KEYS_FILE);
       let changed = false;
-
       for (const [userId, keyData] of Object.entries(keys)) {
         if (!keyData.expiry) continue;
         if (now >= keyData.expiry) {
-          console.log(`[EXPIRY] Key expired for user ${userId}: ${keyData.key}`);
-
-          // Reset key in Luarmor so it becomes unassigned and reusable
           try {
             await luarmorRequest('PATCH', `/projects/${keyData.project}/users`, {
-              user_key: keyData.key,
-              discord_id: '',
-              identifier: '',
-              auth_expire: -1,
-              banned: false,
+              user_key: keyData.key, discord_id: '', identifier: '', auth_expire: -1, banned: false,
             });
-            console.log(`[EXPIRY] Reset key ${keyData.key} back to pool`);
-          } catch(e) {
-            console.log(`[EXPIRY] Luarmor reset failed for ${keyData.key}, removing locally anyway`);
-          }
-
-          // Notify user their key expired
+          } catch(e) {}
           try {
             const user = await client.users.fetch(userId);
             await user.send(`⏰ Your **${keyData.plan}** key has expired! Use /buy to purchase again.`);
           } catch(e) {}
-
-          // Remove key data but keep roblox username for next purchase
           const roblox = keys[userId]?.roblox;
           delete keys[userId];
           if (roblox) keys[userId] = { roblox };
           changed = true;
         }
       }
-
-      if (changed) {
-        saveJSON(KEYS_FILE, keys);
-        console.log('[EXPIRY] Cleaned up expired keys');
-      }
-    } catch(e) {
-      console.error('[EXPIRY] Error in expiry checker:', e);
-    }
-  }, 5 * 60 * 1000); // every 5 minutes
+      if (changed) saveJSON(KEYS_FILE, keys);
+    } catch(e) { console.error('[EXPIRY] Error:', e); }
+  }, 5 * 60 * 1000);
 });
 
 client.on('interactionCreate', async interaction => {
@@ -326,36 +247,18 @@ client.on('interactionCreate', async interaction => {
       const stdTaken = await getSlotCount(STANDARD_PROJECT);
       const keys = loadJSON(KEYS_FILE);
       const now2 = Math.floor(Date.now() / 1000);
-
-      // Build premium slot list - show only roblox username
       const premUsers = Object.entries(keys).filter(([,k]) => k.key && k.project === PREMIUM_PROJECT && k.expiry && now2 < k.expiry);
       let premLines = `${premTaken}/${PREMIUM_SLOTS} taken | ${PREMIUM_SLOTS - premTaken} available | $${PREMIUM_PRICE}/hr\n`;
-      for (const [uid, k] of premUsers) {
-        const roblox = k.roblox || 'Unknown';
-        premLines += `• ${roblox} — <t:${k.expiry}:R>\n`;
-      }
-
-      // Build standard slot list - show only roblox username
+      for (const [,k] of premUsers) premLines += `• ${k.roblox || 'Unknown'} — <t:${k.expiry}:R>\n`;
       const stdUsers = Object.entries(keys).filter(([,k]) => k.key && k.project === STANDARD_PROJECT && k.expiry && now2 < k.expiry);
       let stdLines = `${stdTaken}/${STANDARD_SLOTS} taken | ${STANDARD_SLOTS - stdTaken} available | $${STANDARD_PRICE}/hr\n`;
-      for (const [uid, k] of stdUsers) {
-        const roblox = k.roblox || 'Unknown';
-        stdLines += `• ${roblox} — <t:${k.expiry}:R>\n`;
-      }
-
-      const embed = new EmbedBuilder()
-        .setTitle('🎰 Available Slots')
-        .setColor(0x2b2d31)
-        .addFields(
-          { name: '💎 Premium', value: premLines || 'No active users', inline: false },
-          { name: '⭐ Standard', value: stdLines || 'No active users', inline: false }
-        );
-      return interaction.editReply({ embeds: [embed] });
+      for (const [,k] of stdUsers) stdLines += `• ${k.roblox || 'Unknown'} — <t:${k.expiry}:R>\n`;
+      return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('🎰 Available Slots').setColor(0x2b2d31)
+        .addFields({ name: '💎 Premium', value: premLines || 'No active users', inline: false }, { name: '⭐ Standard', value: stdLines || 'No active users', inline: false })] });
     }
 
     if (commandName === 'balance') {
-      const bal = getBalance(user.id);
-      return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('💰 Your Balance').setDescription(`$${bal.toFixed(2)}`).setColor(0x2b2d31)] });
+      return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('💰 Your Balance').setDescription(`$${getBalance(user.id).toFixed(2)}`).setColor(0x2b2d31)] });
     }
 
     if (commandName === 'key') {
@@ -366,7 +269,6 @@ client.on('interactionCreate', async interaction => {
       const found = users.find(u => u.user_key === userKey);
       if (!found) return interaction.editReply({ content: '❌ Key not found in that plan.' });
       setUserKey(user.id, { key: userKey, plan, project: projectId });
-      // Link discord id
       await luarmorRequest('PATCH', `/projects/${projectId}/users`, { user_key: userKey, discord_id: user.id });
       return interaction.editReply({ content: `✅ Key linked successfully! Plan: **${plan}**` });
     }
@@ -377,25 +279,17 @@ client.on('interactionCreate', async interaction => {
       const luUser = await getUserByDiscord(keyData.project, user.id);
       if (!luUser) return interaction.editReply({ content: '❌ Could not find your key on Luarmor.' });
       const expiry = luUser.auth_expire > 0 ? `<t:${luUser.auth_expire}:F>` : 'Never';
-      const embed = new EmbedBuilder()
-        .setTitle('🔑 Your Key Info')
-        .setColor(0x2b2d31)
-        .addFields(
-          { name: 'Plan', value: keyData.plan, inline: true },
-          { name: 'Key', value: `||${luUser.user_key}||`, inline: true },
+      return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('🔑 Your Key Info').setColor(0x2b2d31)
+        .addFields({ name: 'Plan', value: keyData.plan, inline: true }, { name: 'Key', value: `||${luUser.user_key}||`, inline: true },
           { name: 'Status', value: luUser.banned ? '🔴 Banned' : '🟢 Active', inline: true },
-          { name: 'Expires', value: expiry, inline: true },
-          { name: 'HWID Status', value: luUser.status || 'Unknown', inline: true }
-        );
-      return interaction.editReply({ embeds: [embed] });
+          { name: 'Expires', value: expiry, inline: true }, { name: 'HWID Status', value: luUser.status || 'Unknown', inline: true })] });
     }
 
     if (commandName === 'resethwid') {
       const keyData = getUserKey(user.id);
       if (!keyData) return interaction.editReply({ content: '❌ No key linked. Use /key first.' });
       const r = await resetHWID(keyData.project, keyData.key, false);
-      if (r.status === 200) return interaction.editReply({ content: '✅ HWID reset successfully!' });
-      return interaction.editReply({ content: `❌ Failed: ${r.data?.message || 'Unknown error'}` });
+      return interaction.editReply({ content: r.status === 200 ? '✅ HWID reset successfully!' : `❌ Failed: ${r.data?.message || 'Unknown error'}` });
     }
 
     if (commandName === 'buy') {
@@ -405,68 +299,40 @@ client.on('interactionCreate', async interaction => {
       const pricePerHour = plan === 'premium' ? PREMIUM_PRICE : STANDARD_PRICE;
       const totalCost = pricePerHour * hours;
       const bal = getBalance(user.id);
-
-      // Check if user already has an active key FIRST
       const allKeys = loadJSON(KEYS_FILE);
       const existingKey = allKeys[user.id];
       const nowCheck = Math.floor(Date.now() / 1000);
       if (existingKey?.key && existingKey?.expiry && nowCheck < existingKey.expiry) {
         return interaction.editReply({ content: `❌ You already have an active **${existingKey.plan}** key that expires <t:${existingKey.expiry}:R>. Wait for it to expire before buying again.` });
       }
-
-      // Require roblox username before buying
       if (!allKeys[user.id]?.roblox) return interaction.editReply({ content: '❌ You must set your Roblox username first! Use /setroblox once before buying.' });
-
       if (bal < totalCost) return interaction.editReply({ content: `❌ Insufficient balance. You have **$${bal.toFixed(2)}** but need **$${totalCost.toFixed(2)}**.` });
-
       const taken = await getSlotCount(projectId);
       const maxSlots = plan === 'premium' ? PREMIUM_SLOTS : STANDARD_SLOTS;
       if (taken >= maxSlots) return interaction.editReply({ content: `❌ No ${plan} slots available right now.` });
-
       const available = await getAvailableKey(projectId);
       if (!available) return interaction.editReply({ content: '❌ No unassigned keys available. Please contact an admin.' });
-
       const expiry = Math.floor(Date.now() / 1000) + (hours * 3600);
-      // Assign locally - skip Luarmor API since it blocks our calls
-      // Try Luarmor assign but don't fail if it errors
-      try {
-        await assignKey(projectId, available.user_key, user.id, expiry);
-      } catch(e) {
-        console.log('Luarmor assign failed, continuing with local assignment');
-      }
-
+      try { await assignKey(projectId, available.user_key, user.id, expiry); } catch(e) {}
       setBalance(user.id, bal - totalCost);
-      const existingData = loadJSON(KEYS_FILE)[user.id] || {};
       const k2 = loadJSON(KEYS_FILE);
-      k2[user.id] = { ...existingData, key: available.user_key, plan, project: projectId, expiry };
+      k2[user.id] = { ...(k2[user.id] || {}), key: available.user_key, plan, project: projectId, expiry };
       saveJSON(KEYS_FILE, k2);
-
       try {
-        await interaction.user.send({
-          embeds: [new EmbedBuilder()
-            .setTitle('🎉 Purchase Successful!')
-            .setColor(0x2b2d31)
-            .addFields(
-              { name: 'Plan', value: plan, inline: true },
-              { name: 'Duration', value: `${hours} hours`, inline: true },
-              { name: 'Cost', value: `$${totalCost.toFixed(2)}`, inline: true },
-              { name: 'Key', value: `||${available.user_key}||`, inline: false },
-              { name: 'Expires', value: `<t:${expiry}:F>`, inline: false }
-            )]
-        });
+        await interaction.user.send({ embeds: [new EmbedBuilder().setTitle('🎉 Purchase Successful!').setColor(0x2b2d31)
+          .addFields({ name: 'Plan', value: plan, inline: true }, { name: 'Duration', value: `${hours} hours`, inline: true },
+            { name: 'Cost', value: `$${totalCost.toFixed(2)}`, inline: true }, { name: 'Key', value: `||${available.user_key}||`, inline: false },
+            { name: 'Expires', value: `<t:${expiry}:F>`, inline: false })] });
       } catch {}
-
       return interaction.editReply({ content: `✅ Purchase successful! **$${totalCost.toFixed(2)}** deducted. Key sent to your DMs!` });
     }
 
     if (commandName === 'setroblox') {
       const username = interaction.options.getString('username');
-      // Save roblox username permanently - persists across key purchases
       const k = loadJSON(KEYS_FILE);
       if (!k[user.id]) k[user.id] = {};
       k[user.id].roblox = username;
       saveJSON(KEYS_FILE, k);
-      // Also update on Luarmor if they have an active key
       const keyData = getUserKey(user.id);
       if (keyData) {
         try { await luarmorRequest('PATCH', `/projects/${keyData.project}/users`, { user_key: keyData.key, note: `roblox:${username}` }); } catch(e) {}
@@ -474,7 +340,6 @@ client.on('interactionCreate', async interaction => {
       return interaction.editReply({ content: `✅ Roblox username set to **${username}**! You only need to do this once.` });
     }
 
-    // ADMIN COMMANDS
     if (commandName === 'addbalance') {
       const target = interaction.options.getUser('user');
       const amount = interaction.options.getNumber('amount');
@@ -545,9 +410,7 @@ client.on('interactionCreate', async interaction => {
       const projectId = plan === 'premium' ? PREMIUM_PROJECT : STANDARD_PROJECT;
       const expiry = Math.floor(Date.now() / 1000) + (hours * 3600);
       const r = await luarmorRequest('POST', `/projects/${projectId}/users`, { auth_expire: expiry });
-      if (r.status === 200 || r.status === 201) {
-        return interaction.editReply({ content: `✅ Created new ${plan} key: ||${r.data.user_key || 'check dashboard'}||` });
-      }
+      if (r.status === 200 || r.status === 201) return interaction.editReply({ content: `✅ Created new ${plan} key: ||${r.data.user_key || 'check dashboard'}||` });
       return interaction.editReply({ content: `❌ Failed: ${r.data?.message || JSON.stringify(r.data)}` });
     }
 
@@ -569,7 +432,9 @@ client.on('interactionCreate', async interaction => {
       const available = await getAvailableKey(projectId);
       if (!available) return interaction.editReply({ content: '❌ No available keys. Generate more in Luarmor dashboard.' });
       await assignKey(projectId, available.user_key, target.id, expiry);
-      setUserKey(target.id, { key: available.user_key, plan, project: projectId });
+      const k = loadJSON(KEYS_FILE);
+      k[target.id] = { ...(k[target.id] || {}), key: available.user_key, plan, project: projectId, expiry };
+      saveJSON(KEYS_FILE, k);
       try { await target.send(`🎁 You've been given a **${plan}** key by an admin!\nKey: ||${available.user_key}||\nExpires: <t:${expiry}:F>`); } catch {}
       return interaction.editReply({ content: `✅ Gave ${target.username} a ${plan} key for ${hours}h.` });
     }
@@ -579,20 +444,15 @@ client.on('interactionCreate', async interaction => {
       const keys = loadJSON(KEYS_FILE);
       const active = Object.entries(keys).filter(([,k]) => k.key && k.expiry && nowTs < k.expiry);
       if (active.length === 0) return interaction.editReply({ content: 'No active users right now.' });
-
-      let premLines = '**💎 Premium**\n';
-      let stdLines = '**⭐ Standard**\n';
+      let premLines = '**💎 Premium**\n', stdLines = '**⭐ Standard**\n';
       let hasPrem = false, hasStd = false;
-
       for (const [uid, k] of active) {
-        const roblox = k.roblox || 'Not set';
         let discordName = uid;
         try { const u = await client.users.fetch(uid); discordName = u.username; } catch(e) {}
-        const line = `• **${discordName}** — ${roblox} — expires <t:${k.expiry}:R>\n`;
+        const line = `• **${discordName}** — ${k.roblox || 'Not set'} — expires <t:${k.expiry}:R>\n`;
         if (k.project === PREMIUM_PROJECT) { premLines += line; hasPrem = true; }
         else { stdLines += line; hasStd = true; }
       }
-
       let msg = '';
       if (hasPrem) msg += premLines + '\n';
       if (hasStd) msg += stdLines;
@@ -603,7 +463,6 @@ client.on('interactionCreate', async interaction => {
       const target = interaction.options.getUser('user');
       const keyData = getUserKey(target.id);
       if (!keyData) return interaction.editReply({ content: '❌ User has no linked key.' });
-      // Unlink discord from key
       await luarmorRequest('PATCH', `/projects/${keyData.project}/users`, { user_key: keyData.key, discord_id: '' });
       removeUserKey(target.id);
       return interaction.editReply({ content: `✅ Removed key link for ${target.username}.` });
