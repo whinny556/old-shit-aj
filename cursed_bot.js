@@ -45,8 +45,12 @@ const PREMIUM_PRICE = 6;
 const STANDARD_PRICE = 4;
 const MIN_HOURS = 2;
 
-const BALANCE_FILE = 'balances.json';
-const KEYS_FILE = 'user_keys.json';
+const DATA_DIR = '/app/data';
+const BALANCE_FILE = `${DATA_DIR}/balances.json`;
+const KEYS_FILE = `${DATA_DIR}/user_keys.json`;
+
+if (!require('fs').existsSync(DATA_DIR)) require('fs').mkdirSync(DATA_DIR, { recursive: true });
+
 
 function loadJSON(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return {}; }
